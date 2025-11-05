@@ -1,5 +1,6 @@
 <?php
-require_once 'config/database.php';
+// Start session first to access session data
+session_start();
 
 // Destroy all session data
 $_SESSION = array();
@@ -8,8 +9,10 @@ $_SESSION = array();
 if (ini_get("session.use_cookies")) {
     $params = session_get_cookie_params();
     setcookie(session_name(), '', time() - 42000,
-        $params["path"], $params["domain"],
-        $params["secure"], $params["httponly"]
+        $params["path"], 
+        $params["domain"], 
+        $params["secure"], 
+        $params["httponly"]
     );
 }
 
