@@ -1,6 +1,7 @@
 <?php
 require_once 'includes/header.php';
 require_once 'config/db_connect.php';
+require_once 'includes/helpers.php';
 
 $success_message = '';
 $error_message = '';
@@ -102,14 +103,15 @@ include 'includes/sidebar.php';
 include 'php/referrals/main_content.php';
 //Referral modals
 include 'php/referrals/modals.php';
-//Styling
-include 'css/referrals.css';
-// Modal functions
-include 'js/referrals/modalf.js';
-// Search functionality for referrals table
-include 'js/referrals/searchF.js';
-// Generate detailed HTML for referral modal
-include 'js/referrals/htmlGenerator.js';
-// Helper function for status badge classes
+?>
+<!-- Styling -->
+<link rel="stylesheet" type="text/css" href="css/referrals.css">
+<!-- JavaScript files -->
+<script src="js/referrals/helpersF.js"></script>
+<script src="js/referrals/modalf.js"></script>
+<script src="js/referrals/searchF.js"></script>
+<script src="js/referrals/htmlGenerator.js"></script>
+
+<?php
 include 'includes/footer.php'; 
 ?>

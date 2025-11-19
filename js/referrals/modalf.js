@@ -1,3 +1,19 @@
+async function getReferralData(referralId) {
+    try {
+        const response = await fetch(`get_referral.php?id=${referralId}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            return data.referral;
+        } else {
+            throw new Error(data.message);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        return null;
+    }
+}
+
 function showModal(modalId) {
     document.getElementById(modalId).classList.add('active');
 }
@@ -7,13 +23,17 @@ function hideModal(modalId) {
 }
 
 // Show referral details
-function showReferralDetails(referralId) {
-    // Create detailed HTML content for the referral
-    const referral = getReferralData(referralId);
+async function showReferralDetails(referralId) {
+    const content = document.getElementById('referralDetailsContent');
+    content.innerHTML = '<div style="text-align:center;padding:20px;">Loading...</div>';
+    showModal('referralDetailsModal');
+    
+    const referral = await getReferralData(referralId);
+    
     if (referral) {
-        const content = generateReferralDetailsHTML(referral);
-        document.getElementById('referralDetailsContent').innerHTML = content;
-        showModal('referralDetailsModal');
+        content.innerHTML = generateReferralDetailsHTML(referral);
+    } else {
+        content.innerHTML = '<div style="text-align:center;color:red;padding:20px;">Failed to load referral details</div>';
     }
 }
 

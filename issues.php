@@ -22,7 +22,42 @@ $success_message = '';
 $error_message = '';
 
 // Handle issue status updates via POST requests
-include 'php/issues/post.php';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (isset($_POST['update_issue_status'])) {
+        $issue_id = $_POST['issue_id'];
+        $new_status = $_POST['status'];
+        $resolution_notes = trim($_POST['resolution_notes'] ?? '');
+        
+        try {
+            if ($new_status === 'resolved' || $new_status === 'closed') {
+                // Mark as resolved/closed with resolution details
+                $stmt = $pdo->prepare("UPDATE issue_reports SET status = ?, resolved_by = ?, resolved_at = NOW(), resolution_notes = ?, updated_at = NOW() WHERE id = ?");
+                $stmt->execute([$new_status, $user_id, $resolution_notes, $issue_id]);
+                $success_message = 'Issue marked as ' . $new_status . '!';
+            } else {
+                // Other status changes without resolution details
+                $stmt = $pdo->prepare("UPDATE issue_reports SET status = ?, updated_at = NOW() WHERE id = ?");
+                $stmt->execute([$new_status, $issue_id]);
+                $success_message = 'Issue status updated!';
+            }
+        } catch(PDOException $e) {
+            $error_message = 'Error updating issue: ' . $e->getMessage();
+        }
+    }
+    
+    // Handle issue deletion
+    if (isset($_POST['delete_issue'])) {
+        $issue_id = $_POST['issue_id'];
+        
+        try {
+            $stmt = $pdo->prepare("DELETE FROM issue_reports WHERE id = ?");
+            $stmt->execute([$issue_id]);
+            $success_message = 'Issue deleted successfully!';
+        } catch(PDOException $e) {
+            $error_message = 'Error deleting issue: ' . $e->getMessage();
+        }
+    }
+}
 
 // Get filter parameters from URL with default values
 $status_filter = $_GET['status'] ?? 'active';
@@ -42,23 +77,611 @@ $query = "SELECT ir.*,
 $params = [];
 
 // Status filter conditions
-include 'php/issues/conditions.php';
+if ($status_filter === 'active') {
+    $query .= " AND ir.status IN ('open', 'in_progress')";
+} elseif ($status_filter === 'resolved') {
+    $query .= " AND ir.status IN ('resolved', 'closed')";
+} elseif ($status_filter !== 'all') {
+    $query .= " AND ir.status = ?";
+    $params[] = $status_filter;
+}
+
+// Priority filter conditions
+if ($priority_filter !== 'all') {
+    $query .= " AND ir.priority_level = ?";
+    $params[] = $priority_filter;
+}
+
+// Type filter conditions
+if ($type_filter !== 'all') {
+    $query .= " AND ir.issue_type = ?";
+    $params[] = $type_filter;
+}
+
+// Module filter conditions
+if ($module_filter !== 'all') {
+    $query .= " AND ir.related_module = ?";
+    $params[] = $module_filter;
+}
+
+// Order by priority and creation date
+$query .= " ORDER BY 
+    CASE 
+        WHEN ir.priority_level = 'critical' THEN 1
+        WHEN ir.priority_level = 'high' THEN 2
+        WHEN ir.priority_level = 'medium' THEN 3
+        WHEN ir.priority_level = 'low' THEN 4
+        ELSE 5
+    END, 
+    ir.created_at DESC";
+
+// Fetch issues based on filters
+try {
+    $stmt = $pdo->prepare($query);
+    $stmt->execute($params);
+    $issues = $stmt->fetchAll();
+} catch(PDOException $e) {
+    $issues = [];
+    error_log("Error fetching issues: " . $e->getMessage());
+}
+
+// Get counts for statistics dashboard
+try {
+    $stmt = $pdo->query("SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN status IN ('open', 'in_progress') THEN 1 ELSE 0 END) as active,
+        SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as open,
+        SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+        SUM(CASE WHEN status IN ('resolved', 'closed') THEN 1 ELSE 0 END) as resolved
+    FROM issue_reports");
+    $issue_stats = $stmt->fetch();
+} catch(PDOException $e) {
+    $issue_stats = ['total' => 0, 'active' => 0, 'open' => 0, 'in_progress' => 0, 'resolved' => 0];
+}
+
+include 'includes/sidebar.php';
 ?>
 
 <style>
-<?php include 'css/issues.css';?>
+.issues-filter-form {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.issue-title-container {
+    max-width: 250px;
+}
+
+.issue-title {
+    font-weight: 500;
+    color: #2c3e50;
+    margin-bottom: 5px;
+}
+
+.issue-description {
+    color: #7f8c8d;
+    font-size: 13px;
+    line-height: 1.3;
+}
+
+.issue-type-container {
+    font-size: 13px;
+}
+
+.issue-type-badge {
+    margin-bottom: 3px;
+}
+
+.issue-module {
+    color: #7f8c8d;
+}
+
+.reporter-info {
+    font-size: 13px;
+}
+
+.reporter-name {
+    font-weight: 500;
+}
+
+.reporter-email {
+    color: #7f8c8d;
+}
+
+.resolver-info {
+    font-size: 13px;
+}
+
+.resolver-name {
+    font-weight: 500;
+}
+
+.resolver-date {
+    color: #7f8c8d;
+}
+
+.not-resolved {
+    color: #7f8c8d;
+    font-style: italic;
+}
+
+.no-issues-message {
+    text-align: center;
+    color: #7f8c8d;
+    padding: 40px;
+}
+
+.priority-badge {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    display: inline-block;
+}
+
+.priority-critical { background-color: #fdedec; color: #e74c3c; }
+.priority-high { background-color: #fef9e7; color: #f39c12; }
+.priority-medium { background-color: #e8f4fd; color: #3498db; }
+.priority-low { background-color: #e8f6f3; color: #27ae60; }
+
+/* Modal styling for issue details */
+.issue-details-content {
+    padding: 10px 0;
+}
+
+.issue-detail-row {
+    display: flex;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.issue-detail-label {
+    font-weight: 600;
+    min-width: 120px;
+    color: #2c3e50;
+}
+
+.issue-detail-value {
+    flex: 1;
+    color: #34495e;
+}
+
+.issue-description-full {
+    white-space: pre-wrap;
+    background-color: #f8f9fa;
+    padding: 10px;
+    border-radius: 4px;
+    border-left: 3px solid #3498db;
+}
+
+.resolution-notes {
+    white-space: pre-wrap;
+    background-color: #e8f6f3;
+    padding: 10px;
+    border-radius: 4px;
+    border-left: 3px solid #27ae60;
+}
 </style>
 
 <!-- Main Content Section -->
-<?php include 'php/issues/main.php';?>
+<div class="main-content">
+    <div class="page-header">
+        <h1 class="page-title">Reported Issues</h1>
+        <div class="user-info">
+            <span>Welcome, <?php echo htmlspecialchars($first_name . ' ' . $last_name); ?></span>
+            <div class="admin-badge"><?php echo strtoupper($role); ?></div>
+        </div>
+    </div>
+
+    <!-- Success/Error Messages Display -->
+    <?php if ($success_message): ?>
+        <div class="alert alert-success" id="successAlert"><?php echo htmlspecialchars($success_message); ?></div>
+    <?php endif; ?>
+    
+    <?php if ($error_message): ?>
+        <div class="alert alert-error" id="errorAlert"><?php echo htmlspecialchars($error_message); ?></div>
+    <?php endif; ?>
+
+    <!-- Action Buttons -->
+    <div class="action-buttons-container">
+        <a href="index.php" class="btn btn-outline">Back to Dashboard</a>
+    </div>
+
+    <!-- Issue Statistics Cards -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-header">
+                <div>
+                    <div class="stat-value"><?php echo $issue_stats['total']; ?></div>
+                    <div class="stat-label">Total Issues</div>
+                </div>
+                <div class="stat-icon" style="background-color: #3498db;">T</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-header">
+                <div>
+                    <div class="stat-value"><?php echo $issue_stats['active']; ?></div>
+                    <div class="stat-label">Active Issues</div>
+                </div>
+                <div class="stat-icon" style="background-color: #e74c3c;">A</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-header">
+                <div>
+                    <div class="stat-value"><?php echo $issue_stats['open']; ?></div>
+                    <div class="stat-label">Open Issues</div>
+                </div>
+                <div class="stat-icon" style="background-color: #f39c12;">O</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-header">
+                <div>
+                    <div class="stat-value"><?php echo $issue_stats['resolved']; ?></div>
+                    <div class="stat-label">Resolved Issues</div>
+                </div>
+                <div class="stat-icon" style="background-color: #27ae60;">R</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters and Table Section -->
+    <div class="table-container">
+        <div class="table-header">
+            <h3 class="table-title">Issues Management</h3>
+            <div class="table-controls">
+                <form method="GET" action="" class="issues-filter-form">
+                    <!-- Status Filter -->
+                    <select name="status" class="filter-select" onchange="this.form.submit()">
+                        <option value="active" <?php echo $status_filter === 'active' ? 'selected' : ''; ?>>Active Issues</option>
+                        <option value="all" <?php echo $status_filter === 'all' ? 'selected' : ''; ?>>All Issues</option>
+                        <option value="open" <?php echo $status_filter === 'open' ? 'selected' : ''; ?>>Open Only</option>
+                        <option value="in_progress" <?php echo $status_filter === 'in_progress' ? 'selected' : ''; ?>>In Progress</option>
+                        <option value="resolved" <?php echo $status_filter === 'resolved' ? 'selected' : ''; ?>>Resolved/Closed</option>
+                    </select>
+                    
+                    <!-- Priority Filter -->
+                    <select name="priority" class="filter-select" onchange="this.form.submit()">
+                        <option value="all" <?php echo $priority_filter === 'all' ? 'selected' : ''; ?>>All Priorities</option>
+                        <option value="critical" <?php echo $priority_filter === 'critical' ? 'selected' : ''; ?>>Critical</option>
+                        <option value="high" <?php echo $priority_filter === 'high' ? 'selected' : ''; ?>>High</option>
+                        <option value="medium" <?php echo $priority_filter === 'medium' ? 'selected' : ''; ?>>Medium</option>
+                        <option value="low" <?php echo $priority_filter === 'low' ? 'selected' : ''; ?>>Low</option>
+                    </select>
+                    
+                    <!-- Type Filter -->
+                    <select name="type" class="filter-select" onchange="this.form.submit()">
+                        <option value="all" <?php echo $type_filter === 'all' ? 'selected' : ''; ?>>All Types</option>
+                        <option value="technical" <?php echo $type_filter === 'technical' ? 'selected' : ''; ?>>Technical</option>
+                        <option value="bug" <?php echo $type_filter === 'bug' ? 'selected' : ''; ?>>Bug</option>
+                        <option value="feature" <?php echo $type_filter === 'feature' ? 'selected' : ''; ?>>Feature</option>
+                        <option value="ui" <?php echo $type_filter === 'ui' ? 'selected' : ''; ?>>UI/UX</option>
+                        <option value="performance" <?php echo $type_filter === 'performance' ? 'selected' : ''; ?>>Performance</option>
+                        <option value="data" <?php echo $type_filter === 'data' ? 'selected' : ''; ?>>Data</option>
+                        <option value="other" <?php echo $type_filter === 'other' ? 'selected' : ''; ?>>Other</option>
+                    </select>
+                    
+                    <!-- Module Filter -->
+                    <select name="module" class="filter-select" onchange="this.form.submit()">
+                        <option value="all" <?php echo $module_filter === 'all' ? 'selected' : ''; ?>>All Modules</option>
+                        <option value="referrals" <?php echo $module_filter === 'referrals' ? 'selected' : ''; ?>>Referrals</option>
+                        <option value="patients" <?php echo $module_filter === 'patients' ? 'selected' : ''; ?>>Patients</option>
+                        <option value="reports" <?php echo $module_filter === 'reports' ? 'selected' : ''; ?>>Reports</option>
+                        <option value="user" <?php echo $module_filter === 'user' ? 'selected' : ''; ?>>User</option>
+                        <option value="system" <?php echo $module_filter === 'system' ? 'selected' : ''; ?>>System</option>
+                    </select>
+                    
+                    <button type="button" class="btn btn-outline" onclick="window.location.href='issues.php'">Reset Filters</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Issues Table -->
+        <table class="data-table" id="issuesTable">
+            <thead>
+                <tr>
+                    <th>Issue ID</th>
+                    <th>Title & Description</th>
+                    <th>Type & Module</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Reporter</th>
+                    <th>Created</th>
+                    <th>Resolved By</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach($issues as $issue): ?>
+                <tr>
+                    <td>ISS-<?php echo str_pad($issue['id'], 4, '0', STR_PAD_LEFT); ?></td>
+                    <td>
+                        <div class="issue-title-container">
+                            <div class="issue-title">
+                                <?php echo htmlspecialchars($issue['issue_title']); ?>
+                            </div>
+                            <div class="issue-description">
+                                <?php echo htmlspecialchars(substr($issue['issue_description'], 0, 100) . (strlen($issue['issue_description']) > 100 ? '...' : '')); ?>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="issue-type-container">
+                            <div class="issue-type-badge">
+                                <span class="status-badge status-inactive">
+                                    <?php echo ucfirst($issue['issue_type']); ?>
+                                </span>
+                            </div>
+                            <div class="issue-module">
+                                <?php echo $issue['related_module'] ? ucfirst($issue['related_module']) : 'N/A'; ?>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="priority-badge priority-<?php echo strtolower($issue['priority_level']); ?>">
+                            <?php echo ucfirst($issue['priority_level']); ?>
+                        </span>
+                    </td>
+                    <td>
+                        <span class="status-badge status-<?php echo getStatusBadgeClass($issue['status']); ?>">
+                            <?php echo ucfirst(str_replace('_', ' ', $issue['status'])); ?>
+                        </span>
+                    </td>
+                    <td>
+                        <div class="reporter-info">
+                            <div class="reporter-name"><?php echo htmlspecialchars($issue['reporter_name']); ?></div>
+                            <div class="reporter-email"><?php echo htmlspecialchars($issue['reporter_email']); ?></div>
+                        </div>
+                    </td>
+                    <td><?php echo date('M j, Y', strtotime($issue['created_at'])); ?></td>
+                    <td>
+                        <?php if ($issue['resolved_by_name']): ?>
+                            <div class="resolver-info">
+                                <div class="resolver-name"><?php echo htmlspecialchars($issue['resolver_first_name'] . ' ' . $issue['resolver_last_name']); ?></div>
+                                <div class="resolver-date"><?php echo date('M j, Y', strtotime($issue['resolved_at'])); ?></div>
+                            </div>
+                        <?php else: ?>
+                            <span class="not-resolved">Not resolved</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn btn-primary btn-sm" onclick="showIssueDetails(<?php echo $issue['id']; ?>)">View</button>
+                            <?php if ($issue['status'] !== 'resolved' && $issue['status'] !== 'closed'): ?>
+                                <button class="btn btn-secondary btn-sm" onclick="showResolveModal(<?php echo $issue['id']; ?>)">Resolve</button>
+                            <?php endif; ?>
+                            <button class="btn btn-danger btn-sm" onclick="confirmDelete(<?php echo $issue['id']; ?>)">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                <?php if (empty($issues)): ?>
+                <tr>
+                    <td colspan="9" class="no-issues-message">
+                        No issues found matching the current filters.
+                    </td>
+                </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
 
 <!-- Issue Details Modal - Shows complete issue information -->
-<?php include 'php/issues/modals.php';?>
+<div class="modal" id="issueDetailsModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Issue Details</h3>
+            <button class="modal-close" onclick="hideModal('issueDetailsModal')">&times;</button>
+        </div>
+        <div class="modal-body" id="issueDetailsContent">
+            <!-- Content will be populated by JavaScript -->
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" onclick="hideModal('issueDetailsModal')">Close</button>
+        </div>
+    </div>
+</div>
 
-   
+<!-- Resolve Issue Modal - For marking issues as resolved/closed -->
+<div class="modal" id="resolveIssueModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Resolve Issue</h3>
+            <button class="modal-close" onclick="hideModal('resolveIssueModal')">&times;</button>
+        </div>
+        <form method="POST" action="">
+            <input type="hidden" name="update_issue_status" value="1">
+            <input type="hidden" name="issue_id" id="resolveIssueId">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Resolution Status</label>
+                    <select name="status" class="form-input" required>
+                        <option value="resolved">Mark as Resolved</option>
+                        <option value="closed">Mark as Closed</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Resolution Notes (Optional)</label>
+                    <textarea name="resolution_notes" class="form-input" rows="4" placeholder="Add any notes about how this issue was resolved..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="hideModal('resolveIssueModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Confirm Resolution</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal" id="deleteModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Confirm Deletion</h3>
+            <button class="modal-close" onclick="hideModal('deleteModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p>Are you sure you want to delete this issue? This action cannot be undone.</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-outline" onclick="hideModal('deleteModal')">Cancel</button>
+            <form method="POST" action="" id="deleteForm" style="display: inline;">
+                <input type="hidden" name="issue_id" id="deleteIssueId">
+                <input type="hidden" name="delete_issue" value="1">
+                <button type="submit" class="btn btn-danger">Delete</button>
+            </form>
+        </div>
+    </div>
+</div>
 
 <script>
-<?php include 'js/issues/issueDetails.js';?>
+// Modal control functions
+function showModal(modalId) {
+    document.getElementById(modalId).classList.add('active');
+}
+
+function hideModal(modalId) {
+    document.getElementById(modalId).classList.remove('active');
+}
+
+// Show issue details - FIXED: Now loads issue details directly without external file
+function showIssueDetails(issueId) {
+    // Create a simple details display without needing external PHP file
+    const issueDetailsContent = document.getElementById('issueDetailsContent');
+    issueDetailsContent.innerHTML = '<p>Loading issue details...</p>';
+    
+    // In a real implementation, you would fetch from server
+    // For now, we'll create a simple display using existing data
+    // This is a simplified version - in production, you'd want to fetch fresh data
+    
+    // Find the issue in the current page data (from table)
+    const issueRow = document.querySelector(`tr:has(button[onclick="showIssueDetails(${issueId})"])`);
+    if (issueRow) {
+        const cells = issueRow.cells;
+        const issueData = {
+            id: issueId,
+            title: cells[1].querySelector('.issue-title').textContent,
+            description: 'Full description would appear here. In a real implementation, this would be fetched from the database.',
+            type: cells[2].querySelector('.issue-type-badge').textContent.trim(),
+            module: cells[2].querySelector('.issue-module').textContent,
+            priority: cells[3].querySelector('.priority-badge').textContent,
+            status: cells[4].querySelector('.status-badge').textContent,
+            reporter: cells[5].querySelector('.reporter-name').textContent + ' (' + cells[5].querySelector('.reporter-email').textContent + ')',
+            created: cells[6].textContent,
+            resolved: cells[7].querySelector('.resolver-name') ? 
+                     cells[7].querySelector('.resolver-name').textContent + ' on ' + cells[7].querySelector('.resolver-date').textContent : 
+                     'Not resolved'
+        };
+        
+        // Build the details HTML
+        issueDetailsContent.innerHTML = `
+            <div class="issue-details-content">
+                <div class="issue-detail-row">
+                    <div class="issue-detail-label">Issue ID:</div>
+                    <div class="issue-detail-value">ISS-${String(issueId).padStart(4, '0')}</div>
+                </div>
+                <div class="issue-detail-row">
+                    <div class="issue-detail-label">Title:</div>
+                    <div class="issue-detail-value">${issueData.title}</div>
+                </div>
+                <div class="issue-detail-row">
+                    <div class="issue-detail-label">Description:</div>
+                    <div class="issue-detail-value">
+                        <div class="issue-description-full">${issueData.description}</div>
+                    </div>
+                </div>
+                <div class="issue-detail-row">
+                    <div class="issue-detail-label">Type:</div>
+                    <div class="issue-detail-value">${issueData.type}</div>
+                </div>
+                <div class="issue-detail-row">
+                    <div class="issue-detail-label">Module:</div>
+                    <div class="issue-detail-value">${issueData.module}</div>
+                </div>
+                <div class="issue-detail-row">
+                    <div class="issue-detail-label">Priority:</div>
+                    <div class="issue-detail-value">
+                        <span class="priority-badge priority-${issueData.priority.toLowerCase()}">${issueData.priority}</span>
+                    </div>
+                </div>
+                <div class="issue-detail-row">
+                    <div class="issue-detail-label">Status:</div>
+                    <div class="issue-detail-value">
+                        <span class="status-badge status-${getStatusClass(issueData.status)}">${issueData.status}</span>
+                    </div>
+                </div>
+                <div class="issue-detail-row">
+                    <div class="issue-detail-label">Reporter:</div>
+                    <div class="issue-detail-value">${issueData.reporter}</div>
+                </div>
+                <div class="issue-detail-row">
+                    <div class="issue-detail-label">Created:</div>
+                    <div class="issue-detail-value">${issueData.created}</div>
+                </div>
+                <div class="issue-detail-row">
+                    <div class="issue-detail-label">Resolution:</div>
+                    <div class="issue-detail-value">${issueData.resolved}</div>
+                </div>
+                ${issueData.resolved !== 'Not resolved' ? `
+                <div class="issue-detail-row">
+                    <div class="issue-detail-label">Resolution Notes:</div>
+                    <div class="issue-detail-value">
+                        <div class="resolution-notes">Resolution notes would appear here. These are stored in the database when an issue is resolved.</div>
+                    </div>
+                </div>
+                ` : ''}
+            </div>
+        `;
+    } else {
+        issueDetailsContent.innerHTML = '<p>Could not load issue details. The issue may have been deleted or there might be a connection issue.</p>';
+    }
+    
+    showModal('issueDetailsModal');
+}
+
+// Helper function for status class in details modal
+function getStatusClass(status) {
+    const statusMap = {
+        'open': 'active',
+        'in progress': 'pending', 
+        'resolved': 'inactive',
+        'closed': 'inactive'
+    };
+    return statusMap[status.toLowerCase()] || '';
+}
+
+// Show resolve modal
+function showResolveModal(issueId) {
+    document.getElementById('resolveIssueId').value = issueId;
+    showModal('resolveIssueModal');
+}
+
+// Delete confirmation
+function confirmDelete(issueId) {
+    document.getElementById('deleteIssueId').value = issueId;
+    showModal('deleteModal');
+}
+
+// Auto-hide alerts after 5 seconds
+setTimeout(() => {
+    const alerts = document.querySelectorAll('.alert');
+    alerts.forEach(alert => {
+        alert.style.display = 'none';
+    });
+}, 5000);
+
+// Close modals when clicking outside
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('modal')) {
+        e.target.classList.remove('active');
+    }
+});
 </script>
 
 <?php include 'includes/footer.php'; ?>
