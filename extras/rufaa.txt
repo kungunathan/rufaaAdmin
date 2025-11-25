@@ -1,0 +1,257 @@
+===Database rufaa
+
+== Table structure for table admin_users
+
+|------
+|Column|Type|Null|Default
+|------
+|//**id**//|int(11)|No|
+|**username**|varchar(50)|No|
+|**email**|varchar(255)|No|
+|password_hash|varchar(255)|No|
+|first_name|varchar(100)|No|
+|last_name|varchar(100)|No|
+|role|enum(&#039;super_admin&#039;, &#039;admin&#039;, &#039;moderator&#039;)|Yes|admin
+|is_active|tinyint(1)|Yes|1
+|last_login|timestamp|Yes|NULL
+|created_at|timestamp|No|current_timestamp()
+|updated_at|timestamp|No|current_timestamp()
+== Table structure for table alerts
+
+|------
+|Column|Type|Null|Default
+|------
+|//**id**//|int(11)|No|
+|user_id|int(11)|Yes|NULL
+|title|varchar(255)|Yes|NULL
+|message|text|Yes|NULL
+|action_url|varchar(500)|Yes|NULL
+|alert_type|enum(&#039;info&#039;, &#039;warning&#039;, &#039;urgent&#039;, &#039;success&#039;, &#039;error&#039;)|Yes|info
+|priority|enum(&#039;low&#039;, &#039;medium&#039;, &#039;high&#039;, &#039;critical&#039;)|Yes|medium
+|is_read|tinyint(1)|Yes|0
+|expires_at|timestamp|Yes|NULL
+|created_at|timestamp|No|current_timestamp()
+== Triggers alerts
+
+|------
+|Name|Time|Event|Definition
+|------
+|update_user_activity_on_alert|AFTER|INSERT|BEGIN
+    UPDATE users SET last_activity = NOW() WHERE id = NEW.user_id;
+END
+== Table structure for table audit_logs
+
+|------
+|Column|Type|Null|Default
+|------
+|//**id**//|int(11)|No|
+|user_id|int(11)|Yes|NULL
+|action|varchar(100)|No|
+|table_name|varchar(50)|No|
+|record_id|int(11)|Yes|NULL
+|old_values|longtext|Yes|NULL
+|new_values|longtext|Yes|NULL
+|ip_address|varchar(45)|Yes|NULL
+|user_agent|text|Yes|NULL
+|created_at|timestamp|No|current_timestamp()
+== Table structure for table capacity
+
+|------
+|Column|Type|Null|Default
+|------
+|//**id**//|int(11)|No|
+|user_id|int(11)|Yes|NULL
+|available_capacity|int(11)|Yes|0
+|total_capacity|int(11)|Yes|0
+|utilization_rate|decimal(5,2)|Yes|0.00
+|notes|text|Yes|NULL
+|created_at|timestamp|No|current_timestamp()
+== Table structure for table issue_reports
+
+|------
+|Column|Type|Null|Default
+|------
+|//**id**//|int(11)|No|
+|user_id|int(11)|No|
+|issue_type|enum(&#039;technical&#039;, &#039;feature&#039;, &#039;bug&#039;, &#039;data&#039;, &#039;ui&#039;, &#039;performance&#039;, &#039;other&#039;)|No|
+|related_module|enum(&#039;referrals&#039;, &#039;patients&#039;, &#039;reports&#039;, &#039;user&#039;, &#039;system&#039;, &#039;&#039;)|Yes|
+|issue_title|varchar(255)|No|
+|issue_description|text|No|
+|priority_level|enum(&#039;low&#039;, &#039;medium&#039;, &#039;high&#039;, &#039;critical&#039;)|No|
+|severity|enum(&#039;low&#039;, &#039;medium&#039;, &#039;high&#039;, &#039;critical&#039;)|Yes|medium
+|tags|longtext|Yes|NULL
+|impact_description|text|Yes|NULL
+|reporter_name|varchar(100)|No|
+|reporter_email|varchar(255)|No|
+|reporter_phone|varchar(20)|Yes|NULL
+|follow_up|tinyint(1)|Yes|0
+|status|enum(&#039;open&#039;, &#039;in_progress&#039;, &#039;resolved&#039;, &#039;closed&#039;)|Yes|open
+|resolved_by|int(11)|Yes|NULL
+|assigned_to|int(11)|Yes|NULL
+|estimated_resolution_date|date|Yes|NULL
+|resolved_at|timestamp|Yes|NULL
+|resolution_notes|text|Yes|NULL
+|created_at|timestamp|No|current_timestamp()
+|updated_at|timestamp|No|current_timestamp()
+== Table structure for table password_resets
+
+|------
+|Column|Type|Null|Default
+|------
+|//**id**//|int(11)|No|
+|email|varchar(255)|No|
+|token|varchar(100)|No|
+|created_at|timestamp|No|current_timestamp()
+== Stand-in structure for view recent_user_activity
+
+|------
+|Column|Type|Null|Default
+|------
+|user_id|int(11)|Yes|NULL
+|activity_type|varchar(16)|No|
+|description|mediumtext|Yes|NULL
+|created_at|timestamp|Yes|NULL
+== Table structure for table referrals
+
+|------
+|Column|Type|Null|Default
+|------
+|//**id**//|int(11)|No|
+|user_id|int(11)|Yes|NULL
+|**referral_code**|varchar(50)|No|
+|condition_description|text|Yes|NULL
+|type|enum(&#039;incoming&#039;, &#039;outgoing&#039;)|No|
+|created_at|timestamp|No|current_timestamp()
+|responded_at|timestamp|Yes|NULL
+|patient_id|varchar(50)|No|
+|patient_name|varchar(100)|No|
+|patient_age|int(11)|No|
+|patient_gender|enum(&#039;male&#039;, &#039;female&#039;, &#039;other&#039;)|No|
+|symptoms|text|Yes|NULL
+|medical_history|text|Yes|NULL
+|current_medications|text|Yes|NULL
+|referring_doctor|varchar(100)|No|
+|referring_facility|varchar(100)|No|
+|receiving_user_id|int(11)|No|
+|receiving_facility|varchar(100)|No|
+|specialty|varchar(50)|No|
+|urgency_level|enum(&#039;routine&#039;, &#039;urgent&#039;, &#039;emergency&#039;)|No|
+|additional_notes|text|Yes|NULL
+|status|enum(&#039;pending&#039;, &#039;accepted&#039;, &#039;declined&#039;)|Yes|pending
+|feedback|text|Yes|NULL
+|original_referral_id|int(11)|Yes|NULL
+== Triggers referrals
+
+|------
+|Name|Time|Event|Definition
+|------
+|update_user_activity_on_referral|AFTER|INSERT|BEGIN
+    UPDATE users SET last_activity = NOW() WHERE id = NEW.user_id;
+    IF NEW.receiving_user_id IS NOT NULL THEN
+        UPDATE users SET last_activity = NOW() WHERE id = NEW.receiving_user_id;
+    END IF;
+END
+== Table structure for table referral_reports
+
+|------
+|Column|Type|Null|Default
+|------
+|//**id**//|int(11)|No|
+|user_id|int(11)|No|
+|report_type|enum(&#039;user_activity&#039;, &#039;referral_summary&#039;, &#039;detailed_analysis&#039;)|No|
+|date_range_start|date|Yes|NULL
+|date_range_end|date|Yes|NULL
+|report_data|longtext|No|
+|file_path|varchar(500)|Yes|NULL
+|generated_at|timestamp|No|current_timestamp()
+== Table structure for table system_settings
+
+|------
+|Column|Type|Null|Default
+|------
+|//**id**//|int(11)|No|
+|**setting_key**|varchar(100)|No|
+|setting_value|text|No|
+|setting_type|enum(&#039;string&#039;, &#039;integer&#039;, &#039;boolean&#039;, &#039;json&#039;)|Yes|string
+|description|text|Yes|NULL
+|updated_by|int(11)|Yes|NULL
+|created_at|timestamp|No|current_timestamp()
+|updated_at|timestamp|No|current_timestamp()
+== Table structure for table users
+
+|------
+|Column|Type|Null|Default
+|------
+|//**id**//|int(11)|No|
+|first_name|varchar(100)|No|
+|last_name|varchar(100)|No|
+|**email**|varchar(255)|No|
+|phone|varchar(20)|Yes|NULL
+|avatar_url|varchar(500)|Yes|NULL
+|timezone|varchar(50)|Yes|UTC
+|password_hash|varchar(255)|No|
+|role|enum(&#039;user&#039;, &#039;moderator&#039;, &#039;admin&#039;, &#039;super_admin&#039;)|Yes|user
+|remember_token|varchar(100)|Yes|NULL
+|created_at|timestamp|No|current_timestamp()
+|updated_at|timestamp|No|current_timestamp()
+|last_login|timestamp|Yes|NULL
+|last_activity|timestamp|Yes|NULL
+|is_active|tinyint(1)|Yes|1
+== Stand-in structure for view user_dashboard_stats
+
+|------
+|Column|Type|Null|Default
+|------
+|user_id|int(11)|No|0
+|first_name|varchar(100)|No|
+|last_name|varchar(100)|No|
+|email|varchar(255)|No|
+|total_referrals_sent|bigint(21)|No|0
+|total_referrals_received|bigint(21)|No|0
+|pending_incoming|bigint(21)|No|0
+|pending_outgoing|bigint(21)|No|0
+|unread_alerts|bigint(21)|No|0
+|current_capacity|int(11)|Yes|NULL
+|total_capacity|int(11)|Yes|NULL
+|last_login|timestamp|Yes|NULL
+|last_activity|timestamp|Yes|NULL
+== Table structure for table user_sessions
+
+|------
+|Column|Type|Null|Default
+|------
+|//**id**//|int(11)|No|
+|user_id|int(11)|Yes|NULL
+|**session_token**|varchar(100)|No|
+|ip_address|varchar(45)|Yes|NULL
+|user_agent|text|Yes|NULL
+|expires_at|timestamp|No|current_timestamp()
+|last_activity|timestamp|No|current_timestamp()
+|created_at|timestamp|No|current_timestamp()
+== Structure for view recent_user_activity
+
+|------
+|Column|Type|Null|Default
+|------
+|user_id|int(11)|Yes|NULL
+|activity_type|varchar(16)|No|
+|description|mediumtext|Yes|NULL
+|created_at|timestamp|Yes|NULL
+== Structure for view user_dashboard_stats
+
+|------
+|Column|Type|Null|Default
+|------
+|user_id|int(11)|No|0
+|first_name|varchar(100)|No|
+|last_name|varchar(100)|No|
+|email|varchar(255)|No|
+|total_referrals_sent|bigint(21)|No|0
+|total_referrals_received|bigint(21)|No|0
+|pending_incoming|bigint(21)|No|0
+|pending_outgoing|bigint(21)|No|0
+|unread_alerts|bigint(21)|No|0
+|current_capacity|int(11)|Yes|NULL
+|total_capacity|int(11)|Yes|NULL
+|last_login|timestamp|Yes|NULL
+|last_activity|timestamp|Yes|NULL
