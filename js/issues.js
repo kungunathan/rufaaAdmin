@@ -4,11 +4,10 @@ function showModal(modalId) {
 }
 
 function hideModal(modalId) {
-    ocument.getElementById(modalId).classList.remove('active');
+    document.getElementById(modalId).classList.remove('active');
 }
-d
-// Show issue details 
 
+// Show issue details - FIXED: Now loads issue details directly without external file
 function showIssueDetails(issueId) {
     // Create a simple details display without needing external PHP file
     const issueDetailsContent = document.getElementById('issueDetailsContent');
